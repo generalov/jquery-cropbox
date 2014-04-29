@@ -1,4 +1,7 @@
 (function() {
+  /*jshint indent:2 */
+  'use strict';
+
   // helper functions
   function is_touch_device() {
     return 'ontouchstart' in window || // works on most browsers
@@ -30,8 +33,6 @@
       this.height = null;
       this.img_width = null;
       this.img_height = null;
-      this.img_left = 0;
-      this.img_top = 0;
       this.minPercent = null;
       this.options = options;
       this.$image = $image;
@@ -45,7 +46,7 @@
         var self = this;
 
         var defaultControls = $('<div/>', { 'class' : 'cropControls' })
-              .append($('<span>'+this.options.label+'</span>'))
+              .append($('<span>Drag to crop</span>'))
               .append($('<a/>', { 'class' : 'cropZoomIn' }).on('click', $.proxy(this.zoomIn, this)))
               .append($('<a/>', { 'class' : 'cropZoomOut' }).on('click', $.proxy(this.zoomOut, this)));
 
@@ -64,8 +65,8 @@
           }).on("dragleft dragright dragup dragdown", function(e) {
             if (!dragData)
               dragData = {
-                startX: self.img_left,
-                startY: self.img_top,
+                startX: parseInt(self.$image.css('left'), 10),
+                startY: parseInt(self.$image.css('top'), 10)
               };
             dragData.dx = e.gesture.deltaX;
             dragData.dy = e.gesture.deltaY;
@@ -89,8 +90,8 @@
         } else {
           this.$image.on('mousedown.' + pluginName, function(e1) {
             var dragData = {
-              startX: self.img_left,
-              startY: self.img_top,
+              startX: parseInt(self.$image.css('left'), 10),
+              startY: parseInt(self.$image.css('top'), 10)
             };
             e1.preventDefault();
             $(document).on('mousemove.' + pluginName, function (e2) {
@@ -99,8 +100,7 @@
               self.drag.call(self, dragData, true);
             }).on('mouseup.' + pluginName, function() {
               self.update.call(self);
-              $(document).off('mouseup.' + pluginName);
-              $(document).off('mousemove.' + pluginName);
+              $(document).off('.' + pluginName);
             });
           });
         }
@@ -117,9 +117,7 @@
 
       updateOptions: function () {
         var self = this;
-        self.img_top = 0;
-        self.img_left = 0;
-        self.$image.css({width: '', left: self.img_left, top: self.img_top});
+        self.$image.css({width: '', left: 0, top: 0});
         self.$frame.width(self.options.width).height(self.options.height);
         self.$frame.off('.' + pluginName);
         self.$frame.removeClass('hover');
@@ -136,15 +134,12 @@
         img.onload = function () {
           self.width = img.width;
           self.height = img.height;
+          self.percent = undefined;
+          self.$image.fadeIn('fast');
+          self.fit();
+          self.update();
           img.src = '';
           img.onload = null;
-          self.percent = undefined;
-          self.fit.call(self);
-          if (self.options.result)
-            self.setCrop.call(self, self.options.result);
-          else
-            self.zoom.call(self, self.minPercent);
-          self.$image.fadeIn('fast');
         };
       },
 
@@ -160,7 +155,7 @@
         this.$image.off('.' + pluginName);
         this.$image.css({width: '', left: '', top: ''});
         this.$image.removeClass('cropImage');
-        this.$image.removeData(pluginName);
+        this.$image.removeData('cropbox');
         this.$image.insertAfter(this.$frame);
         this.$frame.removeClass('cropFrame');
         this.$frame.removeAttr('style');
@@ -172,35 +167,31 @@
         var widthRatio = this.options.width / this.width,
           heightRatio = this.options.height / this.height;
         this.minPercent = (widthRatio >= heightRatio) ? widthRatio : heightRatio;
-      },
-
-      setCrop: function (result) {
-        this.percent = Math.max(this.options.width/result.cropW, this.options.height/result.cropH);
-        this.img_width = Math.ceil(this.width*this.percent);
-        this.img_height = Math.ceil(this.height*this.percent);
-        this.img_left = -Math.floor(result.cropX*this.percent);
-        this.img_top = -Math.floor(result.cropY*this.percent);
-        this.$image.css({ width: this.img_width, left: this.img_left, top: this.img_top });
-        this.update();
+        this.zoom(this.minPercent);
       },
 
       zoom: function(percent) {
-        var old_percent = this.percent;
+        var old_left = parseInt(this.$image.css('left'), 10),
+          old_top = parseInt(this.$image.css('top'), 10),
+          old_percent = this.percent;
 
-        this.percent = Math.max(this.minPercent, Math.min(this.options.maxZoom, percent));
+        this.percent = Math.max(this.minPercent, Math.min(1, percent));
         this.img_width = Math.ceil(this.width * this.percent);
         this.img_height = Math.ceil(this.height * this.percent);
+        this.$image.width(this.img_width);
 
         if (old_percent) {
           var zoomFactor = this.percent / old_percent;
-          this.img_left = fill((1 - zoomFactor) * this.options.width / 2 + zoomFactor * this.img_left, this.img_width, this.options.width);
-          this.img_top = fill((1 - zoomFactor) * this.options.height / 2 + zoomFactor * this.img_top, this.img_height, this.options.height);
+          this.$image.css({
+            left: fill((1 - zoomFactor) * this.options.width / 2 + zoomFactor * old_left, this.img_width, this.options.width),
+            top: fill((1 - zoomFactor) * this.options.height / 2 + zoomFactor * old_top, this.img_height, this.options.height)
+          });
         } else {
-          this.img_left = fill((this.options.width - this.img_width) / 2, this.img_width,  this.options.width);
-          this.img_top = fill((this.options.height - this.img_height) / 2, this.img_height, this.options.height);
+          this.$image.css({
+            left: fill((this.options.width - this.img_width) / 2, this.img_width, this.options.width),
+            right: fill((this.options.height - this.img_height) / 2, this.img_height, this.options.height)
+          });
         }
-
-        this.$image.css({ width: this.img_width, left: this.img_left, top: this.img_top });
         this.update();
       },
       zoomIn: function() {
@@ -210,16 +201,17 @@
         this.zoom(this.percent - (1 - this.minPercent) / (this.options.zoom - 1 || 1));
       },
       drag: function(data, skipupdate) {
-        this.img_left = fill(data.startX + data.dx, this.img_width, this.options.width);
-        this.img_top = fill(data.startY + data.dy, this.img_height, this.options.height);
-        this.$image.css({ left: this.img_left, top: this.img_top });
+        this.$image.css({
+          left: fill(data.startX + data.dx, this.img_width, this.options.width),
+          top: fill(data.startY + data.dy, this.img_height, this.options.height)
+        });
         if (skipupdate)
           this.update();
       },
       update: function() {
         this.result = {
-          cropX: -Math.ceil(this.img_left / this.percent),
-          cropY: -Math.ceil(this.img_top / this.percent),
+          cropX: -Math.ceil(parseInt(this.$image.css('left'), 10) / this.percent),
+          cropY: -Math.ceil(parseInt(this.$image.css('top'), 10) / this.percent),
           cropW: Math.floor(this.options.width / this.percent),
           cropH: Math.floor(this.options.height / this.percent),
           stretch: this.minPercent > 1
@@ -241,10 +233,10 @@
 
     $.fn[pluginName] = function(options) {
       return this.each(function() {
-        var $this = $(this), inst = $this.data(pluginName);
+        var inst = $.data(this, pluginName);
         if (!inst) {
           var opts = $.extend({}, $.fn[pluginName].defaultOptions, options);
-          $this.data(pluginName, new Crop($this, opts));
+          $.data(this, pluginName, new Crop($(this), opts));
         } else if (options) {
           $.extend(inst.options, options);
           inst.updateOptions();
@@ -256,10 +248,8 @@
       width: 200,
       height: 200,
       zoom: 10,
-      maxZoom: 1,
       controls: null,
-      showControls: 'auto',
-      label: 'Drag to crop'
+      showControls: 'auto'
     };
   }
 

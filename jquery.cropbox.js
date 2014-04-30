@@ -1,5 +1,5 @@
 (function() {
-  /*jshint indent:2 */
+  /*globals Hammer */
   'use strict';
 
   // helper functions
@@ -9,20 +9,22 @@
   }
 
   function fill(value, target, container) {
-    if (value + target < container)
+    if (value + target < container) {
       value = container - target;
+    }
     return value > 0 ? 0 : value;
   }
 
   function uri2blob(dataURI) {
-      var uriComponents = dataURI.split(',');
-      var byteString = atob(uriComponents[1]);
-      var mimeString = uriComponents[0].split(':')[1].split(';')[0];
-      var ab = new ArrayBuffer(byteString.length);
-      var ia = new Uint8Array(ab);
-      for (var i = 0; i < byteString.length; i++)
-          ia[i] = byteString.charCodeAt(i);
-      return new Blob([ab], { type: mimeString });
+    var uriComponents = dataURI.split(',');
+    var byteString = atob(uriComponents[1]);
+    var mimeString = uriComponents[0].split(':')[1].split(';')[0];
+    var ab = new ArrayBuffer(byteString.length);
+    var ia = new Uint8Array(ab);
+    for (var i = 0; i < byteString.length; i++) {
+      ia[i] = byteString.charCodeAt(i);
+    }
+    return new Blob([ab], { type: mimeString });
   }
 
   var pluginName = 'cropbox';
@@ -34,6 +36,7 @@
       this.img_width = null;
       this.img_height = null;
       this.minPercent = null;
+      this.hammerit = null;
       this.options = options;
       this.$image = $image;
       this.$image.hide().prop('draggable', false).addClass('cropImage').wrap('<div class="cropFrame" />'); // wrap image in frame;
@@ -43,8 +46,6 @@
 
     Crop.prototype = {
       init: function () {
-        var self = this;
-
         var defaultControls = $('<div/>', { 'class' : 'cropControls' })
               .append($('<span>Drag to crop</span>'))
               .append($('<a/>', { 'class' : 'cropZoomIn' }).on('click', $.proxy(this.zoomIn, this)))
@@ -52,22 +53,56 @@
 
         this.$frame.append(this.options.controls || defaultControls);
         this.updateOptions();
+        this.enable();
+      },
 
+      updateOptions: function () {
+        var self = this;
+        self.$image.css({width: '', left: 0, top: 0});
+        self.$frame.width(self.options.width).height(self.options.height);
+
+        // Image hack to get width and height on IE
+        var img = new Image();
+        img.src = self.$image.attr('src');
+        img.onload = function () {
+          self.width = img.width;
+          self.height = img.height;
+          self.percent = undefined;
+          self.$image.fadeIn('fast');
+          self.fit();
+          self.update();
+          img.src = '';
+          img.onload = null;
+        };
+      },
+
+      enable: function() {
+        var self = this;
+        self.$frame.removeClass('hover');
+        if (self.options.showControls === 'always' || self.options.showControls === 'auto' && is_touch_device()) {
+          self.$frame.addClass('hover');
+        } else if (self.options.showControls !== 'never') {
+          self.$frame.on('mouseenter.' + pluginName, function () { self.$frame.addClass('hover'); });
+          self.$frame.on('mouseleave.' + pluginName, function () { self.$frame.removeClass('hover'); });
+        }
         if (typeof $.fn.hammer === 'function' || typeof Hammer !== 'undefined') {
-          var hammerit, dragData;
-          if (typeof $.fn.hammer === 'function')
-            hammerit = this.$image.hammer();
-          else
-            hammerit = Hammer(this.$image.get(0));
+          var dragData;
+          if (typeof $.fn.hammer === 'function') {
+            this.hammerit = this.$image.hammer();
+          } else {
+            /* jshint newcap:false */
+            this.hammerit = Hammer(this.$image.get(0));
+          }
 
-          hammerit.on('touch', function(e) {
+          this.hammerit.on('touch', function(e) {
             e.gesture.preventDefault();
-          }).on("dragleft dragright dragup dragdown", function(e) {
-            if (!dragData)
+          }).on('dragleft dragright dragup dragdown', function(e) {
+            if (!dragData) {
               dragData = {
                 startX: parseInt(self.$image.css('left'), 10),
                 startY: parseInt(self.$image.css('top'), 10)
               };
+            }
             dragData.dx = e.gesture.deltaX;
             dragData.dy = e.gesture.deltaY;
             e.gesture.preventDefault();
@@ -107,52 +142,32 @@
         if ($.fn.mousewheel) {
           this.$image.on('mousewheel.' + pluginName, function (e) {
             e.preventDefault();
-            if (e.deltaY < 0)
+            if (e.deltaY < 0) {
               self.zoomIn.call(self);
-            else
+            } else {
               self.zoomOut.call(self);
+            }
           });
         }
       },
 
-      updateOptions: function () {
-        var self = this;
-        self.$image.css({width: '', left: 0, top: 0});
-        self.$frame.width(self.options.width).height(self.options.height);
-        self.$frame.off('.' + pluginName);
-        self.$frame.removeClass('hover');
-        if (self.options.showControls === 'always' || self.options.showControls === 'auto' && is_touch_device())
-          self.$frame.addClass('hover');
-        else if (self.options.showControls !== 'never') {
-          self.$frame.on('mouseenter.' + pluginName, function () { self.$frame.addClass('hover'); });
-          self.$frame.on('mouseleave.' + pluginName, function () { self.$frame.removeClass('hover'); });
-        }
+      disable: function() {
+        this.$frame.removeClass('hover');
 
-        // Image hack to get width and height on IE
-        var img = new Image();
-        img.src = self.$image.attr('src');
-        img.onload = function () {
-          self.width = img.width;
-          self.height = img.height;
-          self.percent = undefined;
-          self.$image.fadeIn('fast');
-          self.fit();
-          self.update();
-          img.src = '';
-          img.onload = null;
-        };
+        if (this.hammerit) {
+          this.hammerit.dispose();
+        } else {
+          this.$image.off('mousedown.' + pluginName);
+        }
+        if ($.fn.mousewheel) {
+          this.$image.off('mousewheel.' + pluginName);
+        }
+        this.$frame.off('.' + pluginName);
+        this.$image.off('.' + pluginName);
       },
 
       remove: function () {
-        var hammerit;
-        if (typeof $.fn.hammer === 'function')
-          hammerit = this.$image.hammer();
-        else if (typeof Hammer !== 'undefined')
-          hammerit = Hammer(this.$image.get(0));
-        if (hammerit)
-          hammerit.off('mousedown dragleft dragright dragup dragdown release doubletap pinchin pinchout');
-        this.$frame.off('.' + pluginName);
-        this.$image.off('.' + pluginName);
+        this.disable();
         this.$image.css({width: '', left: '', top: ''});
         this.$image.removeClass('cropImage');
         this.$image.removeData('cropbox');
@@ -205,8 +220,9 @@
           left: fill(data.startX + data.dx, this.img_width, this.options.width),
           top: fill(data.startY + data.dy, this.img_height, this.options.height)
         });
-        if (skipupdate)
+        if (skipupdate) {
           this.update();
+        }
       },
       update: function() {
         this.result = {
@@ -253,11 +269,12 @@
     };
   }
 
-  if (typeof require === "function" && typeof exports === "object" && typeof module === "object")
-      factory(require("jquery"));
-  else if (typeof define === "function" && define.amd)
-      define(["jquery"], factory);
-  else
-      factory(window.jQuery || window.Zepto);
+  if (typeof require === 'function' && typeof exports === 'object' && typeof module === 'object') {
+    factory(require('jquery'));
+  } else if (typeof define === 'function' && define.amd) {
+    define(['jquery'], factory);
+  } else {
+    factory(window.jQuery || window.Zepto);
+  }
 
 })();
